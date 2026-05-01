@@ -209,6 +209,45 @@ function MenubarFile( editor ) {
 	} );
 	options.add( option );
 
+	// Zombie Blaster — Import / Save Level
+	// Local-only patch: hooks into the project at d:\_Proj_src\Sanscape\games\Zombie_Blaster
+	// served at the same origin via serve.py path mapping. Logic lives in the game
+	// project so this file's diff stays minimal.
+
+	options.add( new UIHorizontalRule() );
+
+	option = new UIRow();
+	option.setClass( 'option' );
+	option.setTextContent( 'Import Zombie Blaster Level' );
+	option.onClick( async function () {
+
+		try {
+			const mod = await import( '/tools/zombie-blaster-level.js' );
+			await mod.importLevel( editor );
+		} catch ( e ) {
+			alert( 'Zombie Blaster import failed: ' + e.message );
+			console.error( e );
+		}
+
+	} );
+	options.add( option );
+
+	option = new UIRow();
+	option.setClass( 'option' );
+	option.setTextContent( 'Save Zombie Blaster Level' );
+	option.onClick( async function () {
+
+		try {
+			const mod = await import( '/tools/zombie-blaster-level.js' );
+			await mod.saveLevel( editor );
+		} catch ( e ) {
+			alert( 'Zombie Blaster save failed: ' + e.message );
+			console.error( e );
+		}
+
+	} );
+	options.add( option );
+
 	// Export
 
 	const fileExportSubmenuTitle = new UIRow().setTextContent( strings.getKey( 'menubar/file/export' ) ).addClass( 'option' ).addClass( 'submenu-title' );
