@@ -209,40 +209,179 @@ function MenubarFile( editor ) {
 	} );
 	options.add( option );
 
-	// Zombie Blaster — Import / Save Level
-	// Local-only patch: hooks into the project at d:\_Proj_src\Sanscape\games\Zombie_Blaster
-	// served at the same origin via serve.py path mapping. Logic lives in the game
-	// project so this file's diff stays minimal.
+	// Generic level adapter — Import / Save Level
+	//
+	// Loads a same-origin module that exports importLevel(editor) / saveLevel(editor).
+	// Adapter URL is auto-probed from a small list of conventional paths on first use
+	// and cached in localStorage; "Set Level Adapter URL…" below lets you override.
+
+	const ADAPTER_KEY = 'editor/levelAdapterUrl';
+	const PROBE_URLS = [
+		'/tools/level-bridge.js',
+		'/tools/zombie-blaster-level.js',
+		'/level-bridge.js',
+	];
+	const PORT_SCAN_RANGE = { start: 8000, end: 8090 };
+
+	async function headOk( url ) {
+
+		try {
+			const r = await fetch( url, { method: 'HEAD' } );
+			return r.ok;
+		} catch ( e ) {
+			return false;
+		}
+
+	}
+
+	async function pingPort( port ) {
+
+		try {
+			await fetch( `http://localhost:${port}/`, {
+				method: 'HEAD',
+				mode: 'no-cors',
+				cache: 'no-store',
+			} );
+			return true;
+		} catch ( e ) {
+			return false;
+		}
+
+	}
+
+	async function scanLocalPorts() {
+
+		const currentPort = Number( location.port ) || ( location.protocol === 'https:' ? 443 : 80 );
+		const ports = [];
+		for ( let p = PORT_SCAN_RANGE.start; p <= PORT_SCAN_RANGE.end; p ++ ) {
+
+			if ( p !== currentPort ) ports.push( p );
+
+		}
+
+		console.info( `[level-adapter] scanning localhost ports ${PORT_SCAN_RANGE.start}-${PORT_SCAN_RANGE.end}…` );
+		const results = await Promise.all(
+			ports.map( async p => ( { port: p, alive: await pingPort( p ) } ) )
+		);
+		return results.filter( r => r.alive ).map( r => r.port );
+
+	}
+
+	// Picker UI shared by the auto-fallback path and the explicit "Switch Server" menu item.
+	// Returns true if the browser is being navigated away (caller should abort), false otherwise.
+	async function pickServerAndRedirect( { reason } = {} ) {
+
+		const otherPorts = await scanLocalPorts();
+		const currentPort = Number( location.port ) || ( location.protocol === 'https:' ? 443 : 80 );
+
+		if ( otherPorts.length === 0 ) {
+
+			alert(
+				( reason ? reason + '\n\n' : '' ) +
+				`No other local servers detected on ports ${PORT_SCAN_RANGE.start}–${PORT_SCAN_RANGE.end}.\nCurrent: ${currentPort}.`
+			);
+			return false;
+
+		}
+
+		const list = otherPorts.join( ', ' );
+		const choice = prompt(
+			( reason ? reason + '\n\n' : '' ) +
+			`Local servers detected on ports: ${list}.\nCurrent: ${currentPort}.\n\nEnter a port to switch to (will navigate to http://localhost:<port>/editor/):`,
+			String( otherPorts[ 0 ] )
+		);
+		const port = Number( choice );
+		if ( ! Number.isFinite( port ) || port <= 0 ) return false;
+		if ( port === currentPort ) return false;
+
+		location.href = `http://localhost:${port}/editor/`;
+		return true;
+
+	}
+
+	async function getAdapterUrl() {
+
+		const cached = localStorage.getItem( ADAPTER_KEY );
+		if ( cached && await headOk( cached ) ) return cached;
+		if ( cached ) localStorage.removeItem( ADAPTER_KEY );
+
+		for ( const url of PROBE_URLS ) {
+
+			if ( await headOk( url ) ) {
+				localStorage.setItem( ADAPTER_KEY, url );
+				return url;
+			}
+
+		}
+
+		const redirected = await pickServerAndRedirect( {
+			reason: 'No level adapter on this origin.',
+		} );
+		if ( redirected ) return null;
+
+		const entered = prompt(
+			'No level adapter found on this server.\nEnter the URL of a module that exports importLevel(editor) / saveLevel(editor):',
+			'/tools/level-bridge.js'
+		);
+		if ( ! entered ) return null;
+		localStorage.setItem( ADAPTER_KEY, entered );
+		return entered;
+
+	}
+
+	async function callAdapter( fnName ) {
+
+		const url = await getAdapterUrl();
+		if ( ! url ) return;
+
+		try {
+			const mod = await import( url );
+			if ( typeof mod[ fnName ] !== 'function' ) {
+				throw new Error( `adapter does not export ${fnName}()` );
+			}
+			await mod[ fnName ]( editor );
+		} catch ( e ) {
+			alert( `Level ${fnName} failed (${url}): ${e.message}` );
+			console.error( e );
+		}
+
+	}
 
 	options.add( new UIHorizontalRule() );
 
 	option = new UIRow();
 	option.setClass( 'option' );
-	option.setTextContent( 'Import Zombie Blaster Level' );
-	option.onClick( async function () {
-
-		try {
-			const mod = await import( '/tools/zombie-blaster-level.js' );
-			await mod.importLevel( editor );
-		} catch ( e ) {
-			alert( 'Zombie Blaster import failed: ' + e.message );
-			console.error( e );
-		}
-
-	} );
+	option.setTextContent( 'Import Level' );
+	option.onClick( () => callAdapter( 'importLevel' ) );
 	options.add( option );
 
 	option = new UIRow();
 	option.setClass( 'option' );
-	option.setTextContent( 'Save Zombie Blaster Level' );
-	option.onClick( async function () {
+	option.setTextContent( 'Save Level' );
+	option.onClick( () => callAdapter( 'saveLevel' ) );
+	options.add( option );
 
-		try {
-			const mod = await import( '/tools/zombie-blaster-level.js' );
-			await mod.saveLevel( editor );
-		} catch ( e ) {
-			alert( 'Zombie Blaster save failed: ' + e.message );
-			console.error( e );
+	option = new UIRow();
+	option.setClass( 'option' );
+	option.setTextContent( 'Switch Server (Port)…' );
+	option.onClick( () => pickServerAndRedirect() );
+	options.add( option );
+
+	option = new UIRow();
+	option.setClass( 'option' );
+	option.setTextContent( 'Set Level Adapter URL…' );
+	option.onClick( function () {
+
+		const current = localStorage.getItem( ADAPTER_KEY ) || '';
+		const entered = prompt(
+			'Level adapter URL (blank = clear and re-probe next time):',
+			current
+		);
+		if ( entered === null ) return;
+		if ( entered === '' ) {
+			localStorage.removeItem( ADAPTER_KEY );
+		} else {
+			localStorage.setItem( ADAPTER_KEY, entered );
 		}
 
 	} );
