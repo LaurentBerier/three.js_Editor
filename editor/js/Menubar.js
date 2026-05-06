@@ -1,6 +1,7 @@
 import { UIPanel } from './libs/ui.js';
 
 import { MenubarAdd } from './Menubar.Add.js';
+import { MenubarBrand } from './Menubar.Brand.js';
 import { MenubarEdit } from './Menubar.Edit.js';
 import { MenubarFile } from './Menubar.File.js';
 import { MenubarView } from './Menubar.View.js';
@@ -13,6 +14,7 @@ function Menubar( editor ) {
 	const container = new UIPanel();
 	container.setId( 'menubar' );
 
+	container.add( new MenubarBrand() );
 	container.add( new MenubarFile( editor ) );
 	container.add( new MenubarEdit( editor ) );
 	container.add( new MenubarAdd( editor ) );
